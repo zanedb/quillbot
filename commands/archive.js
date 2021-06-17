@@ -2,6 +2,12 @@ const { guildId } = require(`../config${
   process.env.ENVIRONMENT === 'dev' ? '.dev' : ''
 }.json`)
 
+/* 
+  NOTE FOR !archive AND !unarchive
+  DISCORD RATE LIMITS ONLY ALLOW 2 NAME/TOPIC CHANGES PER 10 MINUTES
+  IF THESE FAIL, THAT IS WHY. GIVE IT TIME :)
+*/
+
 module.exports = {
   name: 'archive',
   description: 'archive channel',
