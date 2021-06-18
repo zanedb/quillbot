@@ -132,16 +132,17 @@ app.post('/hook/sms', twilio.webhook(), async (req, res) => {
     const category = guild.channels.cache.find(
       (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
     )
-    if (!category) return
+  if (!category) return res.send(response.toString())
 
     // find channel, create it if it doesn't exist
     let channel = guild.channels.cache.find(
       (c) =>
         c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
-        c.type == 'text'
+      c.type == 'text' &&
+      c.parent === category
     )
     if (!channel) {
-      channel = guild.channels.create(req.body.From.replace('+', ''), {
+    channel = await guild.channels.create(req.body.From.replace('+', ''), {
         parent: category,
       })
     }
