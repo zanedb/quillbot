@@ -42,6 +42,7 @@ client.on('ready', async () => {
 })
 
 client.on('message', async (message) => {
+  // ignore bot/non-text channel messages
   if (message.author.bot || message.channel.type !== 'text') {
     return
   }
@@ -53,19 +54,27 @@ client.on('message', async (message) => {
   ) {
     // validate number in channel category
     if (!isValidPhoneNumber(message.channel.parent.name)) {
-      message.channel.send(
+      return message.channel.send(
         'invalid from number - check your channel category name? does it have a +?'
       )
-      return
     }
 
-    // send message
+    // build message (include attachments if supplied)
     const phone = parsePhoneNumber('+' + message.channel.name.split('-')[0])
-    const msg = await twilioClient.messages.create({
+    const msgObj = {
       body: message.cleanContent,
       from: message.channel.parent.name,
       to: phone.number,
-    })
+    }
+    if (message.attachments.size > 0) {
+      msgObj.mediaUrl = message.attachments.first().url
+      if (message.attachments.size > 1) {
+        message.channel.send('*(note: only sending the first attachment)*')
+      }
+    }
+
+    // send message
+    const msg = await twilioClient.messages.create(msgObj)
 
     // error handling
     if (msg.status === 'failed') {
@@ -143,7 +152,6 @@ app.post('/hook/sms', twilio.webhook(), async (req, res) => {
   // fetch webhook, create it if it doesn't exist
   const hooks = await channel.fetchWebhooks()
   let hook
-  console.log(hooks)
   if (hooks.size > 0) {
     hook = hooks.first()
   } else {
