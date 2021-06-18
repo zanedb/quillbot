@@ -125,58 +125,71 @@ client.on('message', async (message) => {
 
 client.login(TOKEN)
 
-app.post('/hook/sms', twilio.webhook(), async (req, res) => {
-    const response = new MessagingResponse()
+app.post('/hook/sms', async (req, res) => {
+  // validate request
+  const requestIsValid = twilio.validateRequest(
+    process.env.TWILIO_AUTH_TOKEN,
+    req.headers['x-twilio-signature'],
+    process.env.ENDPOINT_URL,
+    req.body
+  )
+  if (!requestIsValid) {
+    return res.status(401).send('Unauthorized')
+  }
 
-    // don't log message if it's not to a number that's already in the discord
-    const category = guild.channels.cache.find(
-      (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
-    )
+  // set response type
+  const response = new MessagingResponse()
+  res.set('Content-Type', 'text/xml')
+
+  // don't log message if it's not to a number that's already in the discord
+  const category = guild.channels.cache.find(
+    (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
+  )
   if (!category) return res.send(response.toString())
 
-    // find channel, create it if it doesn't exist
-    let channel = guild.channels.cache.find(
-      (c) =>
-        c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
+  // find channel, create it if it doesn't exist
+  let channel = guild.channels.cache.find(
+    (c) =>
+      c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
       c.type == 'text' &&
       c.parent === category
-    )
-    if (!channel) {
+  )
+  if (!channel) {
     channel = await guild.channels.create(req.body.From.replace('+', ''), {
-        parent: category,
-      })
-    }
+      parent: category,
+    })
+  }
 
-    // beautify phone number
-    let from = parsePhoneNumber(req.body.From)
-    if (from) from = from.formatNational()
+  // beautify phone number
+  let from = parsePhoneNumber(req.body.From)
+  if (from) from = from.formatNational()
 
-    // fetch webhook, create it if it doesn't exist
-    const hooks = await channel.fetchWebhooks()
-    let hook
-    if (hooks.size > 0) {
-      hook = hooks.first()
-    } else {
-      hook = await channel.createWebhook(from || req.body.From, {
-        avatar: 'https://i.imgur.com/DbZhTBP.png',
-      })
-    }
+  // fetch webhook, create it if it doesn't exist
+  const hooks = await channel.fetchWebhooks()
+  let hook
+  if (hooks.size > 0) {
+    hook = hooks.first()
+  } else {
+    hook = await channel.createWebhook(from || req.body.From, {
+      avatar: 'https://i.imgur.com/DbZhTBP.png',
+    })
+  }
 
-    // build message
-    const incomingMsg = {
-      username: from || req.body.From,
-      avatarURL: 'https://i.imgur.com/DbZhTBP.png',
-      files: [],
-    }
+  // build message
+  const incomingMsg = {
+    username: from || req.body.From,
+    avatarURL: 'https://i.imgur.com/DbZhTBP.png',
+    files: [],
+  }
 
-    // get attachment URLs if they exist
-    if (req.body.NumMedia !== '0') {
-      for (let i = 0; i < req.body.NumMedia; i++) {
-        const extension = extName.mime(req.body[`MediaContentType${i}`])[0].ext
-        const url = req.body[`MediaUrl${i}`]
-        incomingMsg.files.push({ attachment: url, name: url + '.' + extension })
-      }
+  // get attachment URLs if they exist
+  if (req.body.NumMedia !== '0') {
+    for (let i = 0; i < req.body.NumMedia; i++) {
+      const extension = extName.mime(req.body[`MediaContentType${i}`])[0].ext
+      const url = req.body[`MediaUrl${i}`]
+      incomingMsg.files.push({ attachment: url, name: url + '.' + extension })
     }
+  }
 
   try {
     // send the message!
@@ -186,7 +199,7 @@ app.post('/hook/sms', twilio.webhook(), async (req, res) => {
     channel.send('could not deliver incoming message to discord :(')
   }
 
-    // return the request
+  // return the request
   return res.send(response.toString())
 })
 

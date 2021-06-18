@@ -23,7 +23,11 @@ TOKEN=
 # twilio credentials
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
-ENVIRONMENT= # 'dev' or 'prod'
+# endpoint URL
+# this is IMPORTANT! requests will blindly fail without it
+ENDPOINT_URL=
+# 'dev' or 'prod'
+ENVIRONMENT=
 ```
 
 2. develop.
