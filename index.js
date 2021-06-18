@@ -2,6 +2,7 @@ const Discord = require('discord.js')
 const express = require('express')
 const twilio = require('twilio')
 const fs = require('fs')
+const extName = require('ext-name')
 const { isValidPhoneNumber, parsePhoneNumber } = require('libphonenumber-js')
 
 const {
@@ -61,20 +62,20 @@ client.on('message', async (message) => {
 
     // build message (include attachments if supplied)
     const phone = parsePhoneNumber('+' + message.channel.name.split('-')[0])
-    const msgObj = {
+    const outgoingMsg = {
       body: message.cleanContent,
       from: message.channel.parent.name,
       to: phone.number,
     }
     if (message.attachments.size > 0) {
-      msgObj.mediaUrl = message.attachments.first().url
+      outgoingMsg.mediaUrl = message.attachments.first().url
       if (message.attachments.size > 1) {
         message.channel.send('*(note: only sending the first attachment)*')
       }
     }
 
     // send message
-    const msg = await twilioClient.messages.create(msgObj)
+    const msg = await twilioClient.messages.create(outgoingMsg)
 
     // error handling
     if (msg.status === 'failed') {
@@ -125,51 +126,65 @@ client.on('message', async (message) => {
 client.login(TOKEN)
 
 app.post('/hook/sms', twilio.webhook(), async (req, res) => {
-  const response = new MessagingResponse()
+    const response = new MessagingResponse()
 
-  // don't log message if it's not to a number that's already in the discord
-  const category = guild.channels.cache.find(
-    (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
-  )
-  if (!category) return
+    // don't log message if it's not to a number that's already in the discord
+    const category = guild.channels.cache.find(
+      (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
+    )
+    if (!category) return
 
-  // find channel, create it if it doesn't exist
-  let channel = guild.channels.cache.find(
-    (c) =>
-      c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
-      c.type == 'text'
-  )
-  if (!channel) {
-    channel = guild.channels.create(req.body.From.replace('+', ''), {
-      parent: category,
-    })
+    // find channel, create it if it doesn't exist
+    let channel = guild.channels.cache.find(
+      (c) =>
+        c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
+        c.type == 'text'
+    )
+    if (!channel) {
+      channel = guild.channels.create(req.body.From.replace('+', ''), {
+        parent: category,
+      })
+    }
+
+    // beautify phone number
+    let from = parsePhoneNumber(req.body.From)
+    if (from) from = from.formatNational()
+
+    // fetch webhook, create it if it doesn't exist
+    const hooks = await channel.fetchWebhooks()
+    let hook
+    if (hooks.size > 0) {
+      hook = hooks.first()
+    } else {
+      hook = await channel.createWebhook(from || req.body.From, {
+        avatar: 'https://i.imgur.com/DbZhTBP.png',
+      })
+    }
+
+    // build message
+    const incomingMsg = {
+      username: from || req.body.From,
+      avatarURL: 'https://i.imgur.com/DbZhTBP.png',
+      files: [],
+    }
+
+    // get attachment URLs if they exist
+    if (req.body.NumMedia !== '0') {
+      for (let i = 0; i < req.body.NumMedia; i++) {
+        const extension = extName.mime(req.body[`MediaContentType${i}`])[0].ext
+        const url = req.body[`MediaUrl${i}`]
+        incomingMsg.files.push({ attachment: url, name: url + '.' + extension })
+      }
+    }
+
+    // send the message!
+    hook.send(req.body.Body, incomingMsg)
+
+    // return the request
+    res.set('Content-Type', 'text/xml')
+    res.send(response.toString())
   }
-
-  // beautify phone number
-  let from = parsePhoneNumber(req.body.From)
-  if (from) from = from.formatNational()
-
-  // fetch webhook, create it if it doesn't exist
-  const hooks = await channel.fetchWebhooks()
-  let hook
-  if (hooks.size > 0) {
-    hook = hooks.first()
-  } else {
-    hook = await channel.createWebhook(from || req.body.From, {
-      avatar: 'https://i.imgur.com/DbZhTBP.png',
-    })
-  }
-
-  // send the message!
-  hook.send(req.body.Body, {
-    username: from || req.body.From,
-    avatarURL: 'https://i.imgur.com/DbZhTBP.png',
-  })
-
-  // return the request
-  res.set('Content-Type', 'text/xml')
-  res.send(response.toString())
-})
+)
 
 // this is only here for testing
 app.get('/hook/sms', (req, res) => {
