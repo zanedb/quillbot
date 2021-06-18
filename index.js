@@ -1,7 +1,11 @@
-const fs = require('fs')
 const Discord = require('discord.js')
+const express = require('express')
+const twilio = require('twilio')
+const MessagingResponse = require('twilio').twiml.MessagingResponse
+const fs = require('fs')
 const btoa = require('btoa')
 const fetch = require('node-fetch')
+
 const { isValidPhoneNumber, parsePhoneNumber } = require('libphonenumber-js')
 const {
   TOKEN,
@@ -12,6 +16,10 @@ const {
 const { prefix, guildId } = require(`./config${
   ENVIRONMENT === 'dev' ? '.dev' : ''
 }.json`)
+
+const app = express()
+const PORT = process.env.PORT || 3000
+app.use(express.urlencoded({ extended: false }))
 
 const client = new Discord.Client()
 let guild
@@ -118,3 +126,58 @@ client.on('message', async (message) => {
 })
 
 client.login(TOKEN)
+
+app.post('/hook/sms', twilio.webhook(), async (req, res) => {
+  const response = new MessagingResponse()
+
+  // don't log message if it's not to a number that's already in the discord
+  const category = guild.channels.cache.find(
+    (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
+  )
+  if (!category) return
+
+  // find channel, create it if it doesn't exist
+  let channel = guild.channels.cache.find(
+    (c) =>
+      c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
+      c.type == 'text'
+  )
+  if (!channel) {
+    channel = guild.channels.create(req.body.From.replace('+', ''), {
+      parent: category,
+    })
+  }
+
+  // beautify phone number
+  let from = parsePhoneNumber(req.body.From)
+  if (from) from = from.formatNational()
+
+  // fetch webhook, create it if it doesn't exist
+  const hooks = await channel.fetchWebhooks()
+  let hook
+  console.log(hooks)
+  if (hooks.size > 0) {
+    hook = hooks.first()
+  } else {
+    hook = await channel.createWebhook(from || req.body.From, {
+      avatar: 'https://i.imgur.com/DbZhTBP.png',
+    })
+  }
+
+  // send the message!
+  hook.send(req.body.Body, {
+    username: from || req.body.From,
+    avatarURL: 'https://i.imgur.com/DbZhTBP.png',
+  })
+
+  // return the request
+  res.set('Content-Type', 'text/xml')
+  res.send(response.toString())
+})
+
+// this is only here for testing
+app.get('/hook/sms', (req, res) => {
+  res.status(400).json({ error: 'send a POST request' }).end()
+})
+
+app.listen(PORT, () => console.log(`express running on port ${PORT}`))
