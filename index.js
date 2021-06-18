@@ -1,12 +1,9 @@
 const Discord = require('discord.js')
 const express = require('express')
 const twilio = require('twilio')
-const MessagingResponse = require('twilio').twiml.MessagingResponse
 const fs = require('fs')
-const btoa = require('btoa')
-const fetch = require('node-fetch')
-
 const { isValidPhoneNumber, parsePhoneNumber } = require('libphonenumber-js')
+
 const {
   TOKEN,
   TWILIO_ACCOUNT_SID,
@@ -20,6 +17,9 @@ const { prefix, guildId } = require(`./config${
 const app = express()
 const PORT = process.env.PORT || 3000
 app.use(express.urlencoded({ extended: false }))
+
+const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+const MessagingResponse = twilio.twiml.MessagingResponse
 
 const client = new Discord.Client()
 let guild
@@ -61,26 +61,14 @@ client.on('message', async (message) => {
 
     // send message
     const phone = parsePhoneNumber('+' + message.channel.name.split('-')[0])
-    const req = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-      {
-        headers: {
-          Authorization: `Basic ${btoa(
-            `${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`
-          )}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        method: 'POST',
-        body: new URLSearchParams({
-          Body: message.cleanContent,
-          To: phone.number,
-          From: message.channel.parent.name,
-        }),
-      }
-    )
+    const msg = await twilioClient.messages.create({
+      body: message.cleanContent,
+      from: message.channel.parent.name,
+      to: phone.number,
+    })
 
     // error handling
-    if (!req.ok) {
+    if (msg.status === 'failed') {
       message.channel.send('an error occurred while sending that.. :(')
     }
 
