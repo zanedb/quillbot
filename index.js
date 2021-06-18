@@ -178,14 +178,17 @@ app.post('/hook/sms', twilio.webhook(), async (req, res) => {
       }
     }
 
+  try {
     // send the message!
     hook.send(req.body.Body, incomingMsg)
+  } catch (err) {
+    console.error(err)
+    channel.send('could not deliver incoming message to discord :(')
+  }
 
     // return the request
-    res.set('Content-Type', 'text/xml')
-    res.send(response.toString())
-  }
-)
+  return res.send(response.toString())
+})
 
 // this is only here for testing
 app.get('/hook/sms', (req, res) => {
