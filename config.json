@@ -1,7 +1,4 @@
 {
   "prefix": "!",
-  "guildId": "854921409611563008",
-  "debug": {
-    "errorReportingChannelId": "814426614947119165"
-  }
+  "guildId": "854921409611563008"
 }
