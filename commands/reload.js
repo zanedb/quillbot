@@ -1,5 +1,7 @@
 const { MessageEmbed } = require('discord.js')
-const { prefix } = require('../config.json')
+const { prefix } = require(`../config${
+  process.env.ENVIRONMENT === 'dev' ? '.dev' : ''
+}.json`)
 
 module.exports = {
   name: 'reload',
