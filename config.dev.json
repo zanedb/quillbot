@@ -1,4 +1,13 @@
 {
   "prefix": "!",
-  "guildId": "854921409611563008"
+  "guildId": "854921409611563008",
+  "incoming": {
+    "express": {
+      "enabled": false
+    },
+    "vercel": {
+      "enabled": true,
+      "webhookChannelId": "861913151590891530"
+    }
+  }
 }

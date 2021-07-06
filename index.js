@@ -11,7 +11,7 @@ const {
   TWILIO_AUTH_TOKEN,
   ENVIRONMENT,
 } = process.env
-const { prefix, guildId } = require(`./config${
+const { prefix, guildId, incoming } = require(`./config${
   ENVIRONMENT === 'dev' ? '.dev' : ''
 }.json`)
 
@@ -43,10 +43,29 @@ client.on('ready', async () => {
 })
 
 client.on('message', async (message) => {
-  // ignore bot/non-text channel messages
-  if (message.author.bot || message.channel.type !== 'text') {
+  // ignore self/non-text channel messages
+  if (message.author.id === client.user.id || message.channel.type !== 'text') {
     return
   }
+
+  // process raw request from quill-receiver if enabled
+  if (
+    message.author.bot &&
+    incoming.vercel.enabled &&
+    message.channel.id === incoming.vercel.webhookChannelId
+  ) {
+    const body = {}
+    message.embeds[0].fields.forEach((field) => {
+      body[field.name] = field.value
+    })
+
+    return processIncomingMessage(body)
+      ? message.react('✅')
+      : message.react('❌')
+  }
+
+  // don't process any bot messages as texts or commands
+  if (message.author.bot) return
 
   // if it's not a command + it's in a phone number channel, send a message!
   if (
@@ -125,6 +144,77 @@ client.on('message', async (message) => {
 
 client.login(TOKEN)
 
+/*
+  FUNCTIONS
+*/
+
+const processIncomingMessage = async (body) => {
+  // don't log message if it's not to a number that's already in the discord
+  const category = guild.channels.cache.find(
+    (c) => c.name.toLowerCase().includes(body.To) && c.type == 'category'
+  )
+  if (!category) return false
+
+  // find channel, create it if it doesn't exist
+  let channel = guild.channels.cache.find(
+    (c) =>
+      c.name.toLowerCase().includes(body.From.replace('+', '')) &&
+      c.type == 'text' &&
+      c.parent === category
+  )
+  if (!channel) {
+    channel = await guild.channels.create(body.From.replace('+', ''), {
+      parent: category,
+    })
+  }
+
+  // beautify phone number
+  let from = parsePhoneNumber(body.From)
+  if (from) from = from.formatNational()
+
+  // fetch webhook, create it if it doesn't exist
+  const hooks = await channel.fetchWebhooks()
+  let hook
+  if (hooks.size > 0) {
+    hook = hooks.first()
+  } else {
+    hook = await channel.createWebhook(from || body.From, {
+      avatar: 'https://i.imgur.com/DbZhTBP.png',
+    })
+  }
+
+  // build message
+  const incomingMsg = {
+    username: from || body.From,
+    avatarURL: 'https://i.imgur.com/DbZhTBP.png',
+    files: [],
+  }
+
+  // get attachment URLs if they exist
+  if (body.NumMedia !== '0') {
+    for (let i = 0; i < body.NumMedia; i++) {
+      const extension = extName.mime(body[`MediaContentType${i}`])[0].ext
+      const url = body[`MediaUrl${i}`]
+      incomingMsg.files.push({ attachment: url, name: url + '.' + extension })
+    }
+  }
+
+  try {
+    // send the message!
+    hook.send(body.Body, incomingMsg)
+    return true
+  } catch (err) {
+    console.error(err)
+    channel.send('could not deliver incoming message to discord :(')
+    return false
+  }
+}
+
+/*  
+  EXPRESS CODE
+  ONLY ENABLED IF incoming.express.enabled IS true
+*/
+
 app.post('/hook/sms', async (req, res) => {
   // validate request
   const requestIsValid = twilio.validateRequest(
@@ -141,63 +231,8 @@ app.post('/hook/sms', async (req, res) => {
   const response = new MessagingResponse()
   res.set('Content-Type', 'text/xml')
 
-  // don't log message if it's not to a number that's already in the discord
-  const category = guild.channels.cache.find(
-    (c) => c.name.toLowerCase().includes(req.body.To) && c.type == 'category'
-  )
-  if (!category) return res.send(response.toString())
-
-  // find channel, create it if it doesn't exist
-  let channel = guild.channels.cache.find(
-    (c) =>
-      c.name.toLowerCase().includes(req.body.From.replace('+', '')) &&
-      c.type == 'text' &&
-      c.parent === category
-  )
-  if (!channel) {
-    channel = await guild.channels.create(req.body.From.replace('+', ''), {
-      parent: category,
-    })
-  }
-
-  // beautify phone number
-  let from = parsePhoneNumber(req.body.From)
-  if (from) from = from.formatNational()
-
-  // fetch webhook, create it if it doesn't exist
-  const hooks = await channel.fetchWebhooks()
-  let hook
-  if (hooks.size > 0) {
-    hook = hooks.first()
-  } else {
-    hook = await channel.createWebhook(from || req.body.From, {
-      avatar: 'https://i.imgur.com/DbZhTBP.png',
-    })
-  }
-
-  // build message
-  const incomingMsg = {
-    username: from || req.body.From,
-    avatarURL: 'https://i.imgur.com/DbZhTBP.png',
-    files: [],
-  }
-
-  // get attachment URLs if they exist
-  if (req.body.NumMedia !== '0') {
-    for (let i = 0; i < req.body.NumMedia; i++) {
-      const extension = extName.mime(req.body[`MediaContentType${i}`])[0].ext
-      const url = req.body[`MediaUrl${i}`]
-      incomingMsg.files.push({ attachment: url, name: url + '.' + extension })
-    }
-  }
-
-  try {
-    // send the message!
-    hook.send(req.body.Body, incomingMsg)
-  } catch (err) {
-    console.error(err)
-    channel.send('could not deliver incoming message to discord :(')
-  }
+  // deliver message to discord!
+  await processIncomingMessage(req.body)
 
   // return the request
   return res.send(response.toString())
@@ -208,4 +243,6 @@ app.get('/hook/sms', (req, res) => {
   res.status(400).json({ error: 'send a POST request' }).end()
 })
 
-app.listen(PORT, () => console.log(`express running on port ${PORT}`))
+if (incoming.express.enabled) {
+  app.listen(PORT, () => console.log(`express running on port ${PORT}`))
+}
