@@ -34,7 +34,7 @@ for (const file of commandFiles) {
   client.commands.set(command.name, command)
 }
 
-client.on('ready', async () => {
+client.on('ready', () => {
   guild = client.guilds.cache.get(guildId)
   client.user.setPresence({
     activity: { type: 'LISTENING', name: `${prefix}help` },
@@ -190,8 +190,13 @@ const processIncomingMessage = async (body) => {
     files: [],
   }
 
+  const isVoicemail = 'TranscriptionText' in body
+  if (isVoicemail) {
+    incomingMsg.files.push(`${body.RecordingUrl}.wav`)
+  }
+
   // get attachment URLs if they exist
-  if (body.NumMedia !== '0') {
+  if (!isVoicemail && body.NumMedia !== '0') {
     for (let i = 0; i < body.NumMedia; i++) {
       const extension = extName.mime(body[`MediaContentType${i}`])[0].ext
       const url = body[`MediaUrl${i}`]
@@ -201,7 +206,14 @@ const processIncomingMessage = async (body) => {
 
   try {
     // send the message!
-    hook.send(body.Body, incomingMsg)
+    hook.send(
+      isVoicemail
+        ? body.TranscriptionStatus === 'completed'
+          ? `Transcription: ${body.TranscriptionText}`
+          : `Transcription failed.`
+        : body.Body,
+      incomingMsg
+    )
     return true
   } catch (err) {
     console.error(err)
